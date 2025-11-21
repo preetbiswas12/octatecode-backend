@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import collaborationService from '../services/collaboration.js';
 import { WebSocketService } from '../services/websocket.js';
+import { getSupabaseClient } from '../services/supabase.js';
 import logger from '../utils/logger.js';
 
 const router = Router();
@@ -11,15 +12,50 @@ export function setWebSocketService(ws: WebSocketService) {
 }
 
 /**
+ * Check database connection status
+ */
+async function checkDatabaseConnection(): Promise<boolean> {
+	try {
+		const client = getSupabaseClient();
+		if (!client) {
+			return false;
+		}
+
+		// Attempt a simple query to verify connection
+		const { error } = await client
+			.from('collaboration_rooms')
+			.select('count')
+			.limit(1);
+
+		return !error;
+	} catch (error) {
+		logger.error('[Health] Database connection check failed:', error);
+		return false;
+	}
+}
+
+/**
  * GET /api/health
  * Health check endpoint
  */
-router.get('/health', (req: Request, res: Response) => {
-	res.status(200).json({
-		status: 'ok',
-		timestamp: new Date().toISOString(),
-		uptime: process.uptime()
-	});
+router.get('/health', async (req: Request, res: Response) => {
+	try {
+		const dbConnected = await checkDatabaseConnection();
+
+		res.status(200).json({
+			status: 'ok',
+			timestamp: new Date().toISOString(),
+			uptime: process.uptime(),
+			database: dbConnected ? 'connected' : 'disconnected'
+		});
+	} catch (error) {
+		logger.error('[Health] Health check error:', error);
+		res.status(500).json({
+			status: 'error',
+			timestamp: new Date().toISOString(),
+			database: 'disconnected'
+		});
+	}
 });
 
 /**
