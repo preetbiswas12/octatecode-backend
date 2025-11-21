@@ -1,0 +1,301 @@
+import { WebSocketServer, WebSocket } from 'ws';
+import { Server as HttpServer } from 'http';
+import { authenticateFromHeader } from '../utils/auth.js';
+import { IServerMessage, IOperation } from '../models/types.js';
+import collaborationService from './collaboration.js';
+import logger from '../utils/logger.js';
+
+export class WebSocketService {
+	private wss: WebSocketServer;
+
+	constructor(httpServer: HttpServer) {
+		this.wss = new WebSocketServer({ server: httpServer, path: '/collaborate' });
+		this.setupHandlers();
+	}
+
+	private setupHandlers(): void {
+		this.wss.on('connection', (socket: WebSocket) => {
+			logger.info('[WebSocket] New client connected');
+			(socket as any).isAuthenticated = false;
+
+			socket.on('message', (data: Buffer) => {
+				this.handleMessage(socket, data);
+			});
+
+			socket.on('close', () => {
+				this.handleDisconnect(socket);
+			});
+
+			socket.on('error', (error: Error) => {
+				logger.error('[WebSocket] Error:', error);
+			});
+
+			// Send welcome message
+			this.send(socket, {
+				type: 'welcome',
+				data: {
+					message: 'Connected to Void collaboration server',
+					version: '1.0.0'
+				}
+			});
+		});
+
+		logger.info('[WebSocket] Server initialized');
+	}
+
+	private handleMessage(socket: WebSocket, data: Buffer): void {
+		try {
+			const message: IServerMessage = JSON.parse(data.toString());
+
+			// Check authentication for non-auth messages
+			if (message.type !== 'auth' && !(socket as any).isAuthenticated) {
+				this.send(socket, {
+					type: 'error',
+					data: { message: 'Not authenticated. Send auth message first.' }
+				});
+				return;
+			}
+
+			switch (message.type) {
+				case 'auth':
+					this.handleAuth(socket, message);
+					break;
+				case 'create-room':
+					this.handleCreateRoom(socket, message);
+					break;
+				case 'join-room':
+					this.handleJoinRoom(socket, message);
+					break;
+				case 'operation':
+					this.handleOperation(socket, message);
+					break;
+				case 'presence':
+					this.handlePresence(socket, message);
+					break;
+				case 'ping':
+					this.send(socket, { type: 'pong' });
+					break;
+				default:
+					logger.warn(`[WebSocket] Unknown message type: ${message.type}`);
+			}
+		} catch (error) {
+			logger.error('[WebSocket] Parse error:', error);
+			this.send(socket, {
+				type: 'error',
+				data: { message: 'Invalid message format' }
+			});
+		}
+	}
+
+	private handleAuth(socket: WebSocket, message: IServerMessage): void {
+		const token = message.data?.token;
+
+		if (!token) {
+			this.send(socket, {
+				type: 'auth-error',
+				data: { message: 'Missing token' }
+			});
+			return;
+		}
+
+		// Verify token
+		const auth = authenticateFromHeader(`Bearer ${token}`);
+
+		if (!auth) {
+			this.send(socket, {
+				type: 'auth-error',
+				data: { message: 'Invalid token' }
+			});
+			socket.close(1008, 'Authentication failed');
+			return;
+		}
+
+		// Mark as authenticated
+		(socket as any).isAuthenticated = true;
+		(socket as any).userId = auth.userId;
+		(socket as any).email = auth.email;
+		(socket as any).userName = auth.userName;
+
+		logger.info(`[WebSocket] User authenticated: ${auth.userId}`);
+
+		this.send(socket, {
+			type: 'auth-success',
+			data: {
+				userId: auth.userId,
+				userName: auth.userName,
+				email: auth.email
+			}
+		});
+	}
+
+	private handleCreateRoom(socket: WebSocket, message: IServerMessage): void {
+		const userId = (socket as any).userId;
+		const { roomName, fileId, userName } = message.data || {};
+
+		if (!roomName || !fileId) {
+			this.send(socket, {
+				type: 'error',
+				data: { message: 'Missing roomName or fileId' }
+			});
+			return;
+		}
+
+		// Generate room ID
+		const roomId = `room-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+		// Create room
+		const room = collaborationService.createRoom(roomId, roomName, fileId, userId, userName || userId, socket);
+
+		logger.info(`[WebSocket] Room created: ${roomId}`);
+
+		this.send(socket, {
+			type: 'room-created',
+			data: {
+				roomId,
+				roomName,
+				fileId,
+				version: room.version,
+				content: room.content
+			}
+		});
+	}
+
+	private handleJoinRoom(socket: WebSocket, message: IServerMessage): void {
+		const userId = (socket as any).userId;
+		const { roomId, userName } = message.data || {};
+
+		if (!roomId) {
+			this.send(socket, {
+				type: 'error',
+				data: { message: 'Missing roomId' }
+			});
+			return;
+		}
+
+		// Join room
+		const room = collaborationService.joinRoom(roomId, userId, userName || userId, socket);
+
+		if (!room) {
+			this.send(socket, {
+				type: 'error',
+				data: { message: 'Room not found' }
+			});
+			return;
+		}
+
+		logger.info(`[WebSocket] User ${userId} joined room ${roomId}`);
+
+		// Send sync data to joining client
+		this.send(socket, {
+			type: 'sync',
+			data: {
+				roomId,
+				content: room.content,
+				version: room.version,
+				users: Array.from(room.clients.values()).map(client => ({
+					userId: client.userId,
+					userName: client.userName
+				}))
+			}
+		});
+
+		// Notify other clients in room
+		collaborationService.broadcastToRoom(roomId, {
+			type: 'user-joined',
+			data: { userId, userName }
+		}, socket);
+	}
+
+	private handleOperation(socket: WebSocket, message: IServerMessage): void {
+		const room = collaborationService.getRoomBySocket(socket);
+
+		if (!room) {
+			this.send(socket, {
+				type: 'error',
+				data: { message: 'Not in a room' }
+			});
+			return;
+		}
+
+		const operation = message.data as IOperation;
+
+		if (!operation || !operation.type || operation.position === undefined) {
+			this.send(socket, {
+				type: 'error',
+				data: { message: 'Invalid operation' }
+			});
+			return;
+		}
+
+		// Apply operation
+		const updatedRoom = collaborationService.applyOperation(room.id, operation);
+
+		if (!updatedRoom) {
+			return;
+		}
+
+		// Send ACK to sender
+		this.send(socket, {
+			type: 'ack',
+			data: {
+				version: updatedRoom.version,
+				operationId: (operation as any).id
+			}
+		});
+
+		// Broadcast operation to other clients
+		collaborationService.broadcastToRoom(room.id, {
+			type: 'operation',
+			data: operation
+		}, socket);
+	}
+
+	private handlePresence(socket: WebSocket, message: IServerMessage): void {
+		const room = collaborationService.getRoomBySocket(socket);
+
+		if (!room) {
+			return;
+		}
+
+		// Broadcast presence to other clients
+		collaborationService.broadcastToRoom(room.id, {
+			type: 'presence',
+			data: message.data
+		}, socket);
+	}
+
+	private handleDisconnect(socket: WebSocket): void {
+		const roomId = collaborationService.leaveRoom(socket);
+
+		if (roomId) {
+			logger.info(`[WebSocket] User disconnected from room ${roomId}`);
+
+			const room = collaborationService.getRoom(roomId);
+			if (room) {
+				// Notify remaining clients
+				const userId = (socket as any).userId;
+				collaborationService.broadcastToRoom(roomId, {
+					type: 'user-left',
+					data: { userId }
+				});
+			}
+		}
+	}
+
+	private send(socket: WebSocket, message: any): void {
+		if (socket.readyState === WebSocket.OPEN) {
+			try {
+				socket.send(JSON.stringify(message));
+			} catch (error) {
+				logger.error('[WebSocket] Failed to send message', error);
+			}
+		}
+	}
+
+	getStats() {
+		return {
+			connectedClients: this.wss.clients.size,
+			rooms: collaborationService.getStats()
+		};
+	}
+}
