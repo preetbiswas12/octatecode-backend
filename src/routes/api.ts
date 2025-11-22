@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import collaborationService from '../services/collaboration.js';
 import { WebSocketService } from '../services/websocket.js';
 import { getSupabaseClient } from '../services/supabase.js';
+import config from '../config.js';
 import logger from '../utils/logger.js';
 
 const router = Router();
@@ -33,6 +34,25 @@ async function checkDatabaseConnection(): Promise<boolean> {
 		return false;
 	}
 }
+
+/**
+ * GET /api/config
+ * Get client configuration (Supabase credentials and WebSocket endpoint)
+ */
+router.get('/config', (req: Request, res: Response) => {
+	try {
+		res.status(200).json({
+			supabaseUrl: config.supabase.url,
+			supabaseAnonKey: config.supabase.anonKey,
+			wsEndpoint: `wss://${config.apiDomain.replace(/^https?:\/\//, '')}/collaborate`
+		});
+	} catch (error) {
+		logger.error('[API] Config error:', error);
+		res.status(500).json({
+			error: 'Failed to get config'
+		});
+	}
+});
 
 /**
  * GET /api/health
