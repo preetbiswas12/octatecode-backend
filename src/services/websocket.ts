@@ -89,17 +89,32 @@ export class WebSocketService {
 
 	private handleAuth(socket: WebSocket, message: IServerMessage): void {
 		const token = message.data?.token;
+		const roomId = message.data?.roomId;
+		const userId = message.data?.userId;
+		const userName = message.data?.userName;
 
-		if (!token) {
+		if (!token && !roomId) {
 			this.send(socket, {
 				type: 'auth-error',
-				data: { message: 'Missing token' }
+				data: { message: 'Missing token or roomId' }
 			});
 			return;
 		}
 
-		// Verify token
-		const auth = authenticateFromHeader(`Bearer ${token}`);
+		// Try JWT verification first (for production)
+		let auth = token ? authenticateFromHeader(`Bearer ${token}`) : null;
+
+		// Fallback: allow dev/room-based auth with roomId + userId (for development)
+		if (!auth && roomId && userId) {
+			auth = {
+				userId: userId,
+				email: `dev-${userId}@void.local`,
+				userName: userName || userId,
+				iat: Math.floor(Date.now() / 1000),
+				exp: Math.floor(Date.now() / 1000) + 86400
+			};
+			logger.info(`[WebSocket] Development auth enabled for room ${roomId}`);
+		}
 
 		if (!auth) {
 			this.send(socket, {
