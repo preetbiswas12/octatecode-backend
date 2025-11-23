@@ -27,21 +27,45 @@ app.get('/', (req: express.Request, res: express.Response) => {
 	res.json({
 		name: config.appName,
 		version: config.appVersion,
-		description: 'Cloud backend for octate Editor',
+		description: 'Cloud backend for octate Editor - Real-time Collaboration & Sync',
+		uptime: process.uptime(),
+		timestamp: new Date().toISOString(),
 		endpoints: {
-			health: '/api/health',
-			stats: '/api/stats',
+			info: {
+				health: { method: 'GET', path: '/api/health', description: 'Health check and database connection status' },
+				stats: { method: 'GET', path: '/api/stats', description: 'Server statistics (uptime, memory, connected clients)' },
+				config: { method: 'GET', path: '/api/config', description: 'Get Supabase config and WebSocket endpoint' }
+			},
 			auth: {
-				register: 'POST /api/auth/register',
-				login: 'POST /api/auth/login',
-				me: 'GET /api/auth/me',
-				refresh: 'POST /api/auth/refresh'
+				register: { method: 'POST', path: '/api/auth/register', description: 'Register new user' },
+				login: { method: 'POST', path: '/api/auth/login', description: 'Login user' },
+				me: { method: 'GET', path: '/api/auth/me', description: 'Get current user info' },
+				refresh: { method: 'POST', path: '/api/auth/refresh', description: 'Refresh authentication token' }
 			},
 			collaboration: {
-				rooms: 'GET /api/rooms',
-				roomInfo: 'GET /api/rooms/:roomId'
+				rooms_list: { method: 'GET', path: '/api/rooms', description: 'Get all active collaboration rooms' },
+				room_get: { method: 'GET', path: '/api/rooms/:roomId', description: 'Get specific room information' },
+				room_create: { method: 'POST', path: '/api/rooms', description: 'Create new collaboration room', body: '{room_id, name, file_id, host, content?, version?}' },
+				room_join: { method: 'POST', path: '/api/rooms/:roomId/join', description: 'Add participant to room', body: '{user_id, user_name}' },
+				room_operations: { method: 'POST', path: '/api/rooms/:roomId/operations', description: 'Save document operation (for OT sync)', body: '{operation_id, user_id, data, version}' },
+				room_leave: { method: 'POST', path: '/api/rooms/:roomId/leave', description: 'Leave room and mark participant as inactive', body: '{user_id}' }
 			},
-			websocket: 'wss://your-domain/collaborate'
+			migration: {
+				migrate: { method: 'POST', path: '/api/migrate', description: 'Execute database migration', body: '{sql, filename?}' }
+			},
+			websocket: {
+				collaborate: { method: 'WS', path: '/collaborate', description: 'WebSocket endpoint for real-time collaboration' }
+			}
+		},
+		summary: {
+			total_endpoints: 17,
+			get_endpoints: 5,
+			post_endpoints: 6,
+			websocket_endpoints: 1,
+			auth_endpoints: 4,
+			collaboration_endpoints: 6,
+			info_endpoints: 3,
+			migration_endpoints: 1
 		}
 	});
 });
