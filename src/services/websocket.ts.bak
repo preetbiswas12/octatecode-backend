@@ -177,7 +177,7 @@ export class WebSocketService {
 
 	private handleJoinRoom(socket: WebSocket, message: IServerMessage): void {
 		const userId = (socket as any).userId;
-		const { roomId, userName, fileId, roomName, host, content, version } = message.data || {};
+		const { roomId, userName } = message.data || {};
 
 		if (!roomId) {
 			this.send(socket, {
@@ -187,38 +187,10 @@ export class WebSocketService {
 			return;
 		}
 
-		// Check if room exists, if not create it from metadata (for host flow)
-		let room = collaborationService.getRoom(roomId);
-		if (!room && (roomName || fileId)) {
-			logger.info(`[WebSocket] Room not found in memory: ${roomId}. Creating from metadata...`);
-			room = collaborationService.createRoomFromMetadata(
-				roomId,
-				roomName || `Room ${roomId}`,
-				fileId || '',
-				host || userId,
-				content || '',
-				version || 0
-			);
-		}
-
 		// Join room
+		const room = collaborationService.joinRoom(roomId, userId, userName || userId, socket);
+
 		if (!room) {
-			const joinedRoom = collaborationService.joinRoom(roomId, userId, userName || userId, socket);
-			if (joinedRoom) {
-				room = joinedRoom;
-			}
-		} else {
-			// Add client to existing or newly created room
-			room.clients.set(userId, {
-				userId,
-				userName: userName || userId,
-				socket,
-				version: room.version,
-				isAuthenticated: true,
-				joinedAt: Date.now()
-			});
-			(collaborationService as any).clientRooms.set(socket, roomId);
-		} if (!room) {
 			this.send(socket, {
 				type: 'error',
 				data: { message: 'Room not found' }
@@ -291,7 +263,9 @@ export class WebSocketService {
 			type: 'operation',
 			data: operation
 		}, socket);
-	} private handlePresence(socket: WebSocket, message: IServerMessage): void {
+	}
+
+	private handlePresence(socket: WebSocket, message: IServerMessage): void {
 		const room = collaborationService.getRoomBySocket(socket);
 
 		if (!room) {
@@ -340,6 +314,3 @@ export class WebSocketService {
 		};
 	}
 }
-
-
-

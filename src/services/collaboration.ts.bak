@@ -1,19 +1,19 @@
-﻿import { IRoom, IClient, IOperation } from '../models/types.js';
+import { IRoom, IClient, IOperation } from '../models/types.js';
 import logger from '../utils/logger.js';
 
 export class CollaborationService {
 	private rooms: Map<string, IRoom> = new Map();
 	private clientRooms: Map<any, string> = new Map();
 
-	createRoom(roomId: string, roomName: string, fileId: string, userId: string, userName: string, socket: any, content: string = '', version: number = 0): IRoom {
+	createRoom(roomId: string, roomName: string, fileId: string, userId: string, userName: string, socket: any): IRoom {
 		const room: IRoom = {
 			id: roomId,
 			name: roomName,
 			fileId,
 			host: userId,
-			content: content,
+			content: '',
 			operations: [],
-			version: version,
+			version: 0,
 			clients: new Map(),
 			createdAt: Date.now(),
 			updatedAt: Date.now(),
@@ -24,7 +24,7 @@ export class CollaborationService {
 			userId,
 			userName,
 			socket,
-			version: version,
+			version: 0,
 			isAuthenticated: true,
 			joinedAt: Date.now()
 		});
@@ -32,29 +32,7 @@ export class CollaborationService {
 		this.rooms.set(roomId, room);
 		this.clientRooms.set(socket, roomId);
 
-		logger.info(`[Collab] Room created: ${roomId} by ${userId} (content: ${content.length} chars, version: ${version})`);
-
-		return room;
-	}
-
-	createRoomFromMetadata(roomId: string, roomName: string, fileId: string, host: string, content: string = '', version: number = 0): IRoom {
-		const room: IRoom = {
-			id: roomId,
-			name: roomName,
-			fileId,
-			host: host,
-			content: content,
-			operations: [],
-			version: version,
-			clients: new Map(),
-			createdAt: Date.now(),
-			updatedAt: Date.now(),
-			isActive: true
-		};
-
-		this.rooms.set(roomId, room);
-
-		logger.info(`[Collab] Room created from metadata: ${roomId} by System (content: ${content.length} chars, version: ${version})`);
+		logger.info(`[Collab] Room created: ${roomId} by ${userId}`);
 
 		return room;
 	}
@@ -139,6 +117,7 @@ export class CollaborationService {
 		room.updatedAt = Date.now();
 
 		logger.debug(`[Collab] Operation applied in ${roomId}: ${operation.type} at ${operation.position}`);
+
 		return room;
 	}
 
