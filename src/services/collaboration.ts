@@ -6,6 +6,7 @@ export class CollaborationService {
 	private clientRooms: Map<any, string> = new Map();
 
 	createRoom(roomId: string, roomName: string, fileId: string, userId: string, userName: string, socket: any, content: string = '', version: number = 0): IRoom {
+		console.log(`[Collab] Creating room: roomId=${roomId}, roomName=${roomName}, fileId=${fileId}, host=${userId}`);
 		const room: IRoom = {
 			id: roomId,
 			name: roomName,
@@ -32,12 +33,14 @@ export class CollaborationService {
 		this.rooms.set(roomId, room);
 		this.clientRooms.set(socket, roomId);
 
+		console.log(`[Collab] ✅ Room created: ${roomId} by ${userId} (content: ${content.length} chars, version: ${version})`);
 		logger.info(`[Collab] Room created: ${roomId} by ${userId} (content: ${content.length} chars, version: ${version})`);
 
 		return room;
 	}
 
 	createRoomFromMetadata(roomId: string, roomName: string, fileId: string, host: string, content: string = '', version: number = 0): IRoom {
+		console.log(`[Collab] Creating room from metadata: roomId=${roomId}, roomName=${roomName}, fileId=${fileId}, host=${host}`);
 		const room: IRoom = {
 			id: roomId,
 			name: roomName,
@@ -54,6 +57,7 @@ export class CollaborationService {
 
 		this.rooms.set(roomId, room);
 
+		console.log(`[Collab] ✅ Room created from metadata: ${roomId} (content: ${content.length} chars, version: ${version})`);
 		logger.info(`[Collab] Room created from metadata: ${roomId} by System (content: ${content.length} chars, version: ${version})`);
 
 		return room;
@@ -87,12 +91,14 @@ export class CollaborationService {
 		const roomId = this.clientRooms.get(socket);
 
 		if (!roomId) {
+			console.log(`[Collab] User left with no room association`);
 			return null;
 		}
 
 		const room = this.rooms.get(roomId);
 
 		if (!room) {
+			console.log(`[Collab] Room already deleted: ${roomId}`);
 			this.clientRooms.delete(socket);
 			return roomId;
 		}
@@ -107,11 +113,13 @@ export class CollaborationService {
 			}
 		}
 
+		console.log(`[Collab] User ${userId} left room ${roomId}. Remaining clients: ${room.clients.size}`);
 		logger.info(`[Collab] User ${userId} left room ${roomId}`);
 
 		// Delete room if empty
 		if (room.clients.size === 0) {
 			this.rooms.delete(roomId);
+			console.log(`[Collab] ✅ Room deleted (was empty): ${roomId}`);
 			logger.info(`[Collab] Room deleted: ${roomId}`);
 		}
 
@@ -124,20 +132,26 @@ export class CollaborationService {
 		const room = this.rooms.get(roomId);
 
 		if (!room) {
+			console.error(`[Collab] Operation failed: Room not found: ${roomId}`);
 			return null;
 		}
+
+		console.log(`[Collab] Applying operation in ${roomId}: type=${operation.type}, position=${operation.position}, userId=${operation.userId}`);
 
 		// Update version and apply operation
 		room.version++;
 		(operation as any).version = room.version;
 
 		// Apply operation to content
+		const oldLength = room.content.length;
 		room.content = this.applyOperationToText(room.content, operation);
+		const newLength = room.content.length;
 
 		// Store operation in history
 		room.operations.push(operation);
 		room.updatedAt = Date.now();
 
+		console.log(`[Collab] ✅ Operation applied: version=${room.version}, contentLength: ${oldLength} -> ${newLength}, totalOps=${room.operations.length}`);
 		logger.debug(`[Collab] Operation applied in ${roomId}: ${operation.type} at ${operation.position}`);
 		return room;
 	}
