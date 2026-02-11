@@ -17,8 +17,6 @@ import {
 
 class RoomManager extends EventEmitter implements IRoomManager {
 	private rooms = new Map<string, RoomMetadata>();
-	private operations = new Map<string, RemoteOperation[]>();
-	private operationCount = 0;
 	private startTime = Date.now();
 	private cleanupInterval: NodeJS.Timeout | null = null;
 
@@ -69,7 +67,6 @@ class RoomManager extends EventEmitter implements IRoomManager {
 		};
 
 		this.rooms.set(roomId, room);
-		this.operations.set(roomId, []);
 		this.emit('roomCreated', room);
 		return room;
 	}
@@ -158,12 +155,15 @@ class RoomManager extends EventEmitter implements IRoomManager {
 		return true;
 	}
 
+	/**
+	 * DEPRECATED: Operations are now handled peer-to-peer via WebRTC data channels.
+	 * Clients exchange collaboration data directly without server involvement.
+	 */
 	public recordOperation(roomId: string, operation: RemoteOperation): void {
-		const ops = this.operations.get(roomId);
-		if (ops) {
-			ops.push(operation);
-			this.operationCount++;
-		}
+		// No-op: Server no longer stores operations
+		console.log(
+			`[RoomManager] Operation from ${operation.userId} in room ${roomId} - handled peer-to-peer`
+		);
 	}
 
 	public getStats(): ServerStats {
@@ -192,8 +192,9 @@ class RoomManager extends EventEmitter implements IRoomManager {
 				total: cpuUsage.user + cpuUsage.system,
 			},
 			operations: {
-				total: this.operationCount,
-				perSecond: this.operationCount / (uptime / 1000),
+				total: 0,
+				perSecond: 0,
+				note: 'Operations now handled peer-to-peer via WebRTC data channels',
 			},
 		};
 	}
@@ -202,15 +203,14 @@ class RoomManager extends EventEmitter implements IRoomManager {
 		const room = this.rooms.get(roomId);
 		if (!room) return null;
 
-		const ops = this.operations.get(roomId) || [];
-
 		return {
 			roomId,
 			peerCount: room.peerCount,
-			operationCount: ops.length,
+			operationCount: 0,
 			bandwidth: {
-				sent: ops.reduce((sum, op) => sum + JSON.stringify(op).length, 0),
+				sent: 0,
 				received: 0,
+				note: 'Bandwidth tracked peer-to-peer via WebRTC',
 			},
 			createdAt: room.createdAt,
 			lastActivity: room.lastActivity,
@@ -257,7 +257,6 @@ class RoomManager extends EventEmitter implements IRoomManager {
 		// Delete inactive rooms
 		roomsToDelete.forEach((roomId) => {
 			this.rooms.delete(roomId);
-			this.operations.delete(roomId);
 			this.emit('roomClosed', roomId);
 		});
 
@@ -272,7 +271,6 @@ class RoomManager extends EventEmitter implements IRoomManager {
 			this.cleanupInterval = null;
 		}
 		this.rooms.clear();
-		this.operations.clear();
 	}
 }
 

@@ -7,6 +7,7 @@ import { Router, Request, Response } from 'express';
 import { roomManager } from './roomManager.js';
 import { memoryManager } from './memoryManager.js';
 import { signalingServer } from './signalingServer.js';
+import { authManager } from './authManager.js';
 
 export function setupRoutes(router: Router): void {
 	/**
@@ -75,6 +76,12 @@ export function setupRoutes(router: Router): void {
 					description: 'Server and room statistics',
 				},
 				{
+					path: '/auth/token',
+					method: 'POST',
+					description: 'Generate auth token for user to join room',
+					body: { userId: 'string', roomId: 'string' },
+				},
+				{
 					path: '/rooms',
 					method: 'GET',
 					description: 'List all active rooms',
@@ -130,6 +137,43 @@ export function setupRoutes(router: Router): void {
 				},
 			],
 		});
+	});
+
+	/**
+	 * Generate Auth Token
+	 * POST /auth/token
+	 * Call this BEFORE connecting to WebSocket signaling server
+	 * Required body: { userId, roomId }
+	 */
+	router.post('/auth/token', (req: Request, res: Response) => {
+		const { userId, roomId } = req.body;
+
+		if (!userId || !roomId) {
+			return res.status(400).json({
+				error: 'Missing required fields',
+				required: ['userId', 'roomId'],
+				timestamp: Date.now(),
+			});
+		}
+
+		try {
+			const token = authManager.generateToken(userId, roomId);
+			res.json({
+				status: 'success',
+				token,
+				userId,
+				roomId,
+				expiresIn: '1 hour',
+				message: 'Use this token when connecting to WebSocket signaling server',
+				timestamp: Date.now(),
+			});
+		} catch (error) {
+			res.status(500).json({
+				error: 'Failed to generate token',
+				message: error instanceof Error ? error.message : 'Unknown error',
+				timestamp: Date.now(),
+			});
+		}
 	});
 
 	/**

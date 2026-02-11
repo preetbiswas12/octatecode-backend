@@ -6,6 +6,7 @@
 import { EventEmitter } from 'events';
 import { WebSocketServer, WebSocket } from 'ws';
 import { roomManager } from './roomManager.js';
+import { authManager } from './authManager.js';
 import {
 	SignalingMessage,
 	SignalingMessageType,
@@ -157,9 +158,10 @@ class SignalingServer extends EventEmitter implements ISignalingServer {
 				break;
 
 			case SignalingMessageType.OPERATION:
-				if (!clientInfo)
-					return this.sendError(socket, 'Not authenticated');
-				this.handleOperation(socket, message);
+				// DEPRECATED: Operations are now handled peer-to-peer
+				console.log(
+					`[SignalingServer] Ignoring OPERATION message - use WebRTC data channels instead`
+				);
 				break;
 
 			case SignalingMessageType.HEARTBEAT:
@@ -174,12 +176,28 @@ class SignalingServer extends EventEmitter implements ISignalingServer {
 	}
 
 	private handleAuth(socket: WebSocket, message: SignalingMessage): void {
-		const { userId, roomId } = message;
+		const { userId, roomId, data } = message;
 
 		if (!userId || !roomId) {
 			return this.sendError(socket, 'Missing userId or roomId');
 		}
 
+		// Validate token - user must provide valid token to join room
+		const token = data?.token as string | undefined;
+		if (!token) {
+			return this.sendError(
+				socket,
+				'Missing auth token. Request token from /api/auth/token endpoint first.'
+			);
+		}
+
+		// Verify user is authorized for this room
+		const validation = authManager.validateCredentials(userId, roomId, token);
+		if (!validation.valid) {
+			return this.sendError(socket, validation.error || 'Authentication failed');
+		}
+
+		// ✅ User is properly authenticated and authorized
 		const clientInfo: ClientInfo = {
 			userId,
 			roomId,
@@ -192,10 +210,13 @@ class SignalingServer extends EventEmitter implements ISignalingServer {
 			type: SignalingMessageType.AUTH,
 			roomId,
 			userId,
-			data: { status: 'authenticated' },
+			data: { status: 'authenticated', message: 'User properly connected to authorized room' },
 			timestamp: Date.now(),
 		});
 
+		console.log(
+			`[SignalingServer] ✓ User ${userId} authenticated and connected to room ${roomId}`
+		);
 		this.emit('clientConnected', { userId, roomId });
 	}
 
@@ -330,27 +351,7 @@ class SignalingServer extends EventEmitter implements ISignalingServer {
 		});
 	}
 
-	private handleOperation(
-		socket: WebSocket,
-		message: SignalingMessage
-	): void {
-		const { roomId, userId, data } = message;
 
-		const operation = data as unknown as RemoteOperation;
-		roomManager.recordOperation(roomId, operation);
-
-		this.broadcastToRoom(
-			roomId,
-			{
-				type: SignalingMessageType.OPERATION,
-				roomId,
-				userId,
-				data: { operation },
-				timestamp: Date.now(),
-			},
-			userId
-		);
-	}
 
 	private handleHeartbeat(
 		socket: WebSocket,
@@ -381,14 +382,14 @@ class SignalingServer extends EventEmitter implements ISignalingServer {
 		this.emit('clientDisconnected', { userId, roomId });
 	}
 
+	/**
+	 * DEPRECATED: Operations are now handled peer-to-peer via WebRTC data channels.
+	 * Clients exchange collaboration data directly without server involvement.
+	 */
 	public broadcastOperation(roomId: string, operation: RemoteOperation): void {
-		this.broadcastToRoom(roomId, {
-			type: SignalingMessageType.OPERATION,
-			roomId,
-			userId: operation.userId,
-			data: { operation },
-			timestamp: Date.now(),
-		});
+		console.log(
+			`[SignalingServer] broadcastOperation() called - operations should be sent via P2P data channels`
+		);
 	}
 
 	private broadcastToRoom(
