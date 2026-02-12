@@ -1,3 +1,4 @@
+/// <reference types="node" />
 /**
  * Lean P2P Server
  * Express HTTP + WebSocket signaling in one file
