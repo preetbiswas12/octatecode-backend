@@ -3,7 +3,6 @@
  * Just what we need: signals, peers, rooms
  */
 
-/// <reference types="node" />
 import { WebSocket } from 'ws';
 
 /**

@@ -1,4 +1,3 @@
-/// <reference types="node" />
 /**
  * Lean Entry Point
  * Start P2P server with environment config
